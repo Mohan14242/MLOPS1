@@ -11,18 +11,7 @@ RAW_BUCKET = os.getenv("RAW_BUCKET")
 PROCESSED_BUCKET = os.getenv("PROCESSED_BUCKET")
 AWS_REGION = os.getenv("AWS_DEFAULT_REGION")
 
-missing = []
-if not RAW_BUCKET:
-    missing.append("RAW_BUCKET")
-if not PROCESSED_BUCKET:
-    missing.append("PROCESSED_BUCKET")
-if not AWS_REGION:
-    missing.append("AWS_DEFAULT_REGION")
 
-if missing:
-    raise EnvironmentError(
-        f"❌ Missing required environment variables: {', '.join(missing)}"
-    )
 
 CATEGORIES = {
     "cats": 0,

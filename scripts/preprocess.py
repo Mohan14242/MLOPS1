@@ -9,10 +9,19 @@ from PIL import Image
 # -----------------------------
 RAW_BUCKET = os.getenv("RAW_BUCKET")
 PROCESSED_BUCKET = os.getenv("PROCESSED_BUCKET")
+AWS_REGION = os.getenv("AWS_DEFAULT_REGION")
 
-if not RAW_BUCKET or not PROCESSED_BUCKET:
+missing = []
+if not RAW_BUCKET:
+    missing.append("RAW_BUCKET")
+if not PROCESSED_BUCKET:
+    missing.append("PROCESSED_BUCKET")
+if not AWS_REGION:
+    missing.append("AWS_DEFAULT_REGION")
+
+if missing:
     raise EnvironmentError(
-        "❌ RAW_BUCKET and PROCESSED_BUCKET environment variables must so be set"
+        f"❌ Missing required environment variables: {', '.join(missing)}"
     )
 
 CATEGORIES = {
@@ -26,9 +35,9 @@ LOCAL_TMP_DIR = "/tmp/images"
 os.makedirs(LOCAL_TMP_DIR, exist_ok=True)
 
 # -----------------------------
-# AWS Client
+# AWS Client (ENV-based auth)
 # -----------------------------
-s3 = boto3.client("s3")
+s3 = boto3.client("s3", region_name=AWS_REGION)
 
 # -----------------------------
 # Image Transformation

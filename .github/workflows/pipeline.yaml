@@ -3,36 +3,28 @@ name: MLOps Image Processing Pipeline
 on:
   push:
     branches: [ master ]
-permissions:
-  contents: write
-  actions: write
-  id-token: write
-  pull-requests: write
-  issues: write
 
+permissions:
+  contents: read
 
 jobs:
   image-processing:
     runs-on: ubuntu-latest
 
     env:
+      # Non-secret config
       RAW_BUCKET: ${{ vars.RAW_BUCKET }}
       PROCESSED_BUCKET: ${{ vars.PROCESSED_BUCKET }}
-      aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ap-south-1
 
-
+      # AWS credentials (SECRETS)
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
     steps:
-    # -----------------------------
-    # Checkout Code
-    # -----------------------------
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # -----------------------------
-    # Setup Python
-    # -----------------------------
     - name: Setup Python
       uses: actions/setup-python@v5
       with:
@@ -43,21 +35,6 @@ jobs:
         pip install --upgrade pip
         pip install -r requirements.txt
 
-    # -----------------------------
-    # Run Image Processing
-    # -----------------------------
-    - name: Process images and upload to S3
-      env:
-        RAW_BUCKET: ${{ vars.RAW_BUCKET }}
-        PROCESSED_BUCKET: ${{ vars.PROCESSED_BUCKET }}
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    - name: Run image preprocessing
       run: |
         python scripts/preprocess.py
-
-    # -----------------------------
-    # Verify Upload (Optional)
-    # -----------------------------
-    - name: List processed S3 files
-      run: |
-        aws s3 ls s3://$PROCESSED_BUCKET/ --recursive

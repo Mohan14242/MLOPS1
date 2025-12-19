@@ -1,5 +1,6 @@
 import os
 import io
+import csv
 import boto3
 import numpy as np
 from PIL import Image
@@ -20,9 +21,8 @@ CATEGORIES = {
 }
 
 IMAGE_SIZE = (224, 224)
-DATASET_KEY = "dataset/dataset.npz"
-LOCAL_TMP_DIR = "/tmp"
-LOCAL_DATASET_PATH = f"{LOCAL_TMP_DIR}/dataset.npz"
+CSV_KEY = "dataset/image_dataset.csv"
+LOCAL_CSV_PATH = "/tmp/image_dataset.csv"
 
 # -----------------------------
 # AWS Client
@@ -30,72 +30,63 @@ LOCAL_DATASET_PATH = f"{LOCAL_TMP_DIR}/dataset.npz"
 s3 = boto3.client("s3", region_name=AWS_REGION)
 
 # -----------------------------
-# Image → Matrix
+# Image → Flattened Matrix
 # -----------------------------
-def image_to_matrix(image_bytes):
+def image_to_flat_matrix(image_bytes):
     image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     image = image.resize(IMAGE_SIZE)
 
-    # Convert to NumPy matrix
-    matrix = np.asarray(image, dtype=np.float32)
-
-    # Normalize (0–255 → 0–1)
-    matrix /= 255.0
-    return matrix
+    matrix = np.asarray(image, dtype=np.float32) / 255.0
+    return matrix.flatten()  # 1D vector
 
 # -----------------------------
-# Build Matrix Dataset
+# Build CSV Dataset
 # -----------------------------
-def build_matrix_dataset():
-    X = []
-    y = []
+def build_csv_matrix_dataset():
+    header_written = False
 
-    for category, label in CATEGORIES.items():
-        paginator = s3.get_paginator("list_objects_v2")
+    with open(LOCAL_CSV_PATH, "w", newline="") as f:
+        writer = csv.writer(f)
 
-        for page in paginator.paginate(
-            Bucket=RAW_BUCKET,
-            Prefix=f"{category}/"
-        ):
-            for obj in page.get("Contents", []):
-                key = obj["Key"]
-                if key.endswith("/"):
-                    continue
+        for category, label in CATEGORIES.items():
+            paginator = s3.get_paginator("list_objects_v2")
 
-                response = s3.get_object(Bucket=RAW_BUCKET, Key=key)
-                image_bytes = response["Body"].read()
+            for page in paginator.paginate(
+                Bucket=RAW_BUCKET,
+                Prefix=f"{category}/"
+            ):
+                for obj in page.get("Contents", []):
+                    key = obj["Key"]
+                    if key.endswith("/"):
+                        continue
 
-                matrix = image_to_matrix(image_bytes)
+                    response = s3.get_object(Bucket=RAW_BUCKET, Key=key)
+                    image_bytes = response["Body"].read()
 
-                X.append(matrix)
-                y.append(label)
+                    flat_pixels = image_to_flat_matrix(image_bytes)
 
-                print(f"Processed → {key}")
+                    # Write header once
+                    if not header_written:
+                        header = ["label"] + [
+                            f"pixel_{i}" for i in range(len(flat_pixels))
+                        ]
+                        writer.writerow(header)
+                        header_written = True
 
-    # Convert lists to matrices
-    X = np.stack(X)        # (N, 224, 224, 3)
-    y = np.array(y)        # (N,)
+                    writer.writerow([label] + flat_pixels.tolist())
+                    print(f"Processed → {key}")
 
-    # Save as one dataset
-    np.savez_compressed(
-        LOCAL_DATASET_PATH,
-        X=X,
-        y=y
-    )
-
-    # Upload to S3
+    # Upload CSV to S3
     s3.upload_file(
-        LOCAL_DATASET_PATH,
+        LOCAL_CSV_PATH,
         PROCESSED_BUCKET,
-        DATASET_KEY
+        CSV_KEY
     )
 
-    print("✅ Matrix dataset created successfully")
-    print(f"X shape: {X.shape}")
-    print(f"y shape: {y.shape}")
+    print("✅ CSV matrix dataset created successfully")
 
 # -----------------------------
 # Entry Point
 # -----------------------------
 if __name__ == "__main__":
-    build_matrix_dataset()
+    build_csv_matrix_dataset()

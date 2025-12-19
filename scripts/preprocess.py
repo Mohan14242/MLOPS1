@@ -107,7 +107,7 @@ def process_images():
         "labels.csv"
     )
 
-    print("✅ Image processing completed successfully")
+    print("✅ Image processing completed successfully1")
 
 # -----------------------------
 # Entry Point

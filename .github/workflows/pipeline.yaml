@@ -2,7 +2,7 @@ name: MLOps Image Processing Pipeline
 
 on:
   push:
-    branches: [ main ]
+    branches: [ master ]
 
 jobs:
   image-processing:

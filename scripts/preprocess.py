@@ -12,7 +12,7 @@ PROCESSED_BUCKET = os.getenv("PROCESSED_BUCKET")
 
 if not RAW_BUCKET or not PROCESSED_BUCKET:
     raise EnvironmentError(
-        "❌ RAW_BUCKET and PROCESSED_BUCKET environment variables must be set"
+        "❌ RAW_BUCKET and PROCESSED_BUCKET environment variables must so be set"
     )
 
 CATEGORIES = {

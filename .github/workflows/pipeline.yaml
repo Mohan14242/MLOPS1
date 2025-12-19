@@ -47,6 +47,11 @@ jobs:
     # Run Image Processing
     # -----------------------------
     - name: Process images and upload to S3
+      env:
+        RAW_BUCKET: ${{ vars.RAW_BUCKET }}
+        PROCESSED_BUCKET: ${{ vars.PROCESSED_BUCKET }}
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       run: |
         python scripts/preprocess.py \
           --raw-bucket $RAW_BUCKET \

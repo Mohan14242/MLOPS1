@@ -41,4 +41,4 @@ jobs:
         python scripts/preprocess.py
     - name: train the model 
       run: |
-        python 
+        python train.py

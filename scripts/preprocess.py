@@ -1,28 +1,18 @@
 import os
 import io
-import csv
 import boto3
+import numpy as np
 from PIL import Image
 
 # -----------------------------
-# Configuration (ENV VARS)
+# Configuration
 # -----------------------------
 RAW_BUCKET = os.getenv("RAW_BUCKET")
 PROCESSED_BUCKET = os.getenv("PROCESSED_BUCKET")
 AWS_REGION = os.getenv("AWS_DEFAULT_REGION")
 
-missing = []
-if not RAW_BUCKET:
-    missing.append("RAW_BUCKET")
-if not PROCESSED_BUCKET:
-    missing.append("PROCESSED_BUCKET")
-if not AWS_REGION:
-    missing.append("AWS_DEFAULT_REGION")
-
-if missing:
-    raise EnvironmentError(
-        f"❌ Missing required environment variables: {', '.join(missing)}"
-    )
+if not all([RAW_BUCKET, PROCESSED_BUCKET, AWS_REGION]):
+    raise EnvironmentError("Missing required environment variables")
 
 CATEGORIES = {
     "cats": 0,
@@ -30,87 +20,82 @@ CATEGORIES = {
 }
 
 IMAGE_SIZE = (224, 224)
-
-LOCAL_TMP_DIR = "/tmp/images"
-os.makedirs(LOCAL_TMP_DIR, exist_ok=True)
+DATASET_KEY = "dataset/dataset.npz"
+LOCAL_TMP_DIR = "/tmp"
+LOCAL_DATASET_PATH = f"{LOCAL_TMP_DIR}/dataset.npz"
 
 # -----------------------------
-# AWS Client (ENV-based auth)
+# AWS Client
 # -----------------------------
 s3 = boto3.client("s3", region_name=AWS_REGION)
 
 # -----------------------------
-# Image Transformation
+# Image → Matrix
 # -----------------------------
-def transform_image(image_bytes):
+def image_to_matrix(image_bytes):
     image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     image = image.resize(IMAGE_SIZE)
-    return image
+
+    # Convert to NumPy matrix
+    matrix = np.asarray(image, dtype=np.float32)
+
+    # Normalize (0–255 → 0–1)
+    matrix /= 255.0
+    return matrix
 
 # -----------------------------
-# Main Processing Logic
+# Build Matrix Dataset
 # -----------------------------
-def process_images():
-    labels = []
-    image_counter = 0
+def build_matrix_dataset():
+    X = []
+    y = []
 
     for category, label in CATEGORIES.items():
         paginator = s3.get_paginator("list_objects_v2")
-        pages = paginator.paginate(
+
+        for page in paginator.paginate(
             Bucket=RAW_BUCKET,
             Prefix=f"{category}/"
-        )
-
-        for page in pages:
-            if "Contents" not in page:
-                continue
-
-            for obj in page["Contents"]:
+        ):
+            for obj in page.get("Contents", []):
                 key = obj["Key"]
                 if key.endswith("/"):
                     continue
 
-                image_counter += 1
-                filename = f"{category[:-1]}_{image_counter:04d}.jpg"
-                local_path = os.path.join(LOCAL_TMP_DIR, filename)
-
-                # Download image
                 response = s3.get_object(Bucket=RAW_BUCKET, Key=key)
                 image_bytes = response["Body"].read()
 
-                # Transform image
-                image = transform_image(image_bytes)
-                image.save(local_path, format="JPEG")
+                matrix = image_to_matrix(image_bytes)
 
-                # Upload to processed bucket
-                s3.upload_file(
-                    local_path,
-                    PROCESSED_BUCKET,
-                    f"images/{filename}"
-                )
+                X.append(matrix)
+                y.append(label)
 
-                labels.append([filename, label])
-                print(f"Processed {key} → images/{filename}")
+                print(f"Processed → {key}")
 
-    # -----------------------------
-    # Save labels.csv
-    # -----------------------------
-    labels_path = os.path.join(LOCAL_TMP_DIR, "labels.csv")
-    with open(labels_path, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["image_name", "label"])
-        writer.writerows(labels)
+    # Convert lists to matrices
+    X = np.stack(X)        # (N, 224, 224, 3)
+    y = np.array(y)        # (N,)
 
-    s3.upload_file(
-        labels_path,
-        PROCESSED_BUCKET,
-        "labels.csv"
+    # Save as one dataset
+    np.savez_compressed(
+        LOCAL_DATASET_PATH,
+        X=X,
+        y=y
     )
 
-    print("✅ Image processing completed successfully1")
+    # Upload to S3
+    s3.upload_file(
+        LOCAL_DATASET_PATH,
+        PROCESSED_BUCKET,
+        DATASET_KEY
+    )
+
+    print("✅ Matrix dataset created successfully")
+    print(f"X shape: {X.shape}")
+    print(f"y shape: {y.shape}")
 
 # -----------------------------
 # Entry Point
 # -----------------------------
 if __name__ == "__main__":
-    process_images()
+    build_matrix_dataset()

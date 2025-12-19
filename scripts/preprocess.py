@@ -1,7 +1,6 @@
 import os
 import io
 import boto3
-import csv
 import numpy as np
 from PIL import Image
 
@@ -21,9 +20,9 @@ CATEGORIES = {
 }
 
 IMAGE_SIZE = (224, 224)
-LOCAL_BASE_DIR = "/tmp/dataset"
-
-os.makedirs(LOCAL_BASE_DIR, exist_ok=True)
+DATASET_KEY = "dataset/dataset.npz"
+LOCAL_TMP_DIR = "/tmp"
+LOCAL_DATASET_PATH = f"{LOCAL_TMP_DIR}/dataset.npz"
 
 # -----------------------------
 # AWS Client
@@ -37,14 +36,19 @@ def image_to_matrix(image_bytes):
     image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     image = image.resize(IMAGE_SIZE)
 
-    matrix = np.asarray(image, dtype=np.float32) / 255.0
-    return matrix  # (224, 224, 3)
+    # Convert to NumPy matrix
+    matrix = np.asarray(image, dtype=np.float32)
+
+    # Normalize (0–255 → 0–1)
+    matrix /= 255.0
+    return matrix
 
 # -----------------------------
-# Store Matrix Dataset
+# Build Matrix Dataset
 # -----------------------------
 def build_matrix_dataset():
-    counter = 0
+    X = []
+    y = []
 
     for category, label in CATEGORIES.items():
         paginator = s3.get_paginator("list_objects_v2")
@@ -58,47 +62,37 @@ def build_matrix_dataset():
                 if key.endswith("/"):
                     continue
 
-                counter += 1
-                sample_name = f"{category[:-1]}_{counter:04d}"
-
-                local_sample_dir = os.path.join(LOCAL_BASE_DIR, sample_name)
-                os.makedirs(local_sample_dir, exist_ok=True)
-
-                # Download image
                 response = s3.get_object(Bucket=RAW_BUCKET, Key=key)
                 image_bytes = response["Body"].read()
 
                 matrix = image_to_matrix(image_bytes)
 
-                # -----------------------------
-                # Save matrix as CSV (2D rows)
-                # -----------------------------
-                matrix_path = os.path.join(local_sample_dir, "image_matrix.csv")
-                with open(matrix_path, "w", newline="") as f:
-                    writer = csv.writer(f)
-                    for row in matrix:
-                        writer.writerow(row.flatten().tolist())
+                X.append(matrix)
+                y.append(label)
 
-                # Save label
-                label_path = os.path.join(local_sample_dir, "label.txt")
-                with open(label_path, "w") as f:
-                    f.write(str(label))
+                print(f"Processed → {key}")
 
-                # Upload to S3
-                s3.upload_file(
-                    matrix_path,
-                    PROCESSED_BUCKET,
-                    f"image_matrix.csv"
-                )
-                s3.upload_file(
-                    label_path,
-                    PROCESSED_BUCKET,
-                    f"label.txt"
-                )
+    # Convert lists to matrices
+    X = np.stack(X)        # (N, 224, 224, 3)
+    y = np.array(y)        # (N,)
 
-                print(f"✔ Stored matrix for {key}")
+    # Save as one dataset
+    np.savez_compressed(
+        LOCAL_DATASET_PATH,
+        X=X,
+        y=y
+    )
 
-    print("✅ Matrix-based dataset created successfully")
+    # Upload to S3
+    s3.upload_file(
+        LOCAL_DATASET_PATH,
+        PROCESSED_BUCKET,
+        DATASET_KEY
+    )
+
+    print("✅ Matrix dataset created successfully")
+    print(f"X shape: {X.shape}")
+    print(f"y shape: {y.shape}")
 
 # -----------------------------
 # Entry Point

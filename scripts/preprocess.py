@@ -20,7 +20,7 @@ CATEGORIES = {
 }
 
 IMAGE_SIZE = (224, 224)
-DATASET_KEY = "dataset/dataset.npz"
+DATASET_KEY = "dataset.npz"
 LOCAL_TMP_DIR = "/tmp"
 LOCAL_DATASET_PATH = f"{LOCAL_TMP_DIR}/dataset.npz"
 

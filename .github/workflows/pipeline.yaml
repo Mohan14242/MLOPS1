@@ -20,6 +20,7 @@ jobs:
       # AWS credentials (SECRETS)
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      MODEL_BUCKET: mlops14242model
 
     steps:
     - name: Checkout repository
@@ -38,3 +39,6 @@ jobs:
     - name: Run image preprocessing
       run: |
         python scripts/preprocess.py
+    - name: train the model 
+      run: |
+        python 

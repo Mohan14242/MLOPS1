@@ -1,7 +1,7 @@
 import os
 import io
-import csv
 import boto3
+import csv
 import numpy as np
 from PIL import Image
 
@@ -21,8 +21,9 @@ CATEGORIES = {
 }
 
 IMAGE_SIZE = (224, 224)
-CSV_KEY = "dataset/image_dataset.csv"
-LOCAL_CSV_PATH = "/tmp/image_dataset.csv"
+LOCAL_BASE_DIR = "/tmp/dataset"
+
+os.makedirs(LOCAL_BASE_DIR, exist_ok=True)
 
 # -----------------------------
 # AWS Client
@@ -30,63 +31,77 @@ LOCAL_CSV_PATH = "/tmp/image_dataset.csv"
 s3 = boto3.client("s3", region_name=AWS_REGION)
 
 # -----------------------------
-# Image → Flattened Matrix
+# Image → Matrix
 # -----------------------------
-def image_to_flat_matrix(image_bytes):
+def image_to_matrix(image_bytes):
     image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     image = image.resize(IMAGE_SIZE)
 
     matrix = np.asarray(image, dtype=np.float32) / 255.0
-    return matrix.flatten()  # 1D vector
+    return matrix  # (224, 224, 3)
 
 # -----------------------------
-# Build CSV Dataset
+# Store Matrix Dataset
 # -----------------------------
-def build_csv_matrix_dataset():
-    header_written = False
+def build_matrix_dataset():
+    counter = 0
 
-    with open(LOCAL_CSV_PATH, "w", newline="") as f:
-        writer = csv.writer(f)
+    for category, label in CATEGORIES.items():
+        paginator = s3.get_paginator("list_objects_v2")
 
-        for category, label in CATEGORIES.items():
-            paginator = s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(
+            Bucket=RAW_BUCKET,
+            Prefix=f"{category}/"
+        ):
+            for obj in page.get("Contents", []):
+                key = obj["Key"]
+                if key.endswith("/"):
+                    continue
 
-            for page in paginator.paginate(
-                Bucket=RAW_BUCKET,
-                Prefix=f"{category}/"
-            ):
-                for obj in page.get("Contents", []):
-                    key = obj["Key"]
-                    if key.endswith("/"):
-                        continue
+                counter += 1
+                sample_name = f"{category[:-1]}_{counter:04d}"
 
-                    response = s3.get_object(Bucket=RAW_BUCKET, Key=key)
-                    image_bytes = response["Body"].read()
+                local_sample_dir = os.path.join(LOCAL_BASE_DIR, sample_name)
+                os.makedirs(local_sample_dir, exist_ok=True)
 
-                    flat_pixels = image_to_flat_matrix(image_bytes)
+                # Download image
+                response = s3.get_object(Bucket=RAW_BUCKET, Key=key)
+                image_bytes = response["Body"].read()
 
-                    # Write header once
-                    if not header_written:
-                        header = ["label"] + [
-                            f"pixel_{i}" for i in range(len(flat_pixels))
-                        ]
-                        writer.writerow(header)
-                        header_written = True
+                matrix = image_to_matrix(image_bytes)
 
-                    writer.writerow([label] + flat_pixels.tolist())
-                    print(f"Processed → {key}")
+                # -----------------------------
+                # Save matrix as CSV (2D rows)
+                # -----------------------------
+                matrix_path = os.path.join(local_sample_dir, "image_matrix.csv")
+                with open(matrix_path, "w", newline="") as f:
+                    writer = csv.writer(f)
+                    for row in matrix:
+                        writer.writerow(row.flatten().tolist())
 
-    # Upload CSV to S3
-    s3.upload_file(
-        LOCAL_CSV_PATH,
-        PROCESSED_BUCKET,
-        CSV_KEY
-    )
+                # Save label
+                label_path = os.path.join(local_sample_dir, "label.txt")
+                with open(label_path, "w") as f:
+                    f.write(str(label))
 
-    print("✅ CSV matrix dataset created successfully")
+                # Upload to S3
+                s3.upload_file(
+                    matrix_path,
+                    PROCESSED_BUCKET,
+                    f"image_matrix.csv"
+                )
+                s3.upload_file(
+                    label_path,
+                    PROCESSED_BUCKET,
+                    f"label.txt"
+                )
+
+                print(f"✔ Stored matrix for {key}")
+
+    print("✅ Matrix-based dataset created successfully")
 
 # -----------------------------
 # Entry Point
 # -----------------------------
 if __name__ == "__main__":
-    build_csv_matrix_dataset()
+    build_matrix_dataset()
